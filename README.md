@@ -1,2 +1,2 @@
 # Tabula
-Mapa nielegalnych ogłoszeń
+Mapa turystyczna
