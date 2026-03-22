@@ -2,188 +2,178 @@
 <html lang="pl">
 <head>
     <meta charset="UTF-8">
-    <title>Mapa nielegalnych ogłoszeń</title>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
-    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.css" />
-    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.Default.css" />
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Tabula - Mapa Reklam</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.Default.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet.markercluster@1.4.1/dist/leaflet.markercluster.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
-        body { margin: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
-        #map { height: 100vh; width: 100%; }
-        #panel {
-            position: fixed; top: 15px; left: 65px;
-            background: white; padding: 20px; z-index: 1000;
-            border-radius: 15px; box-shadow: 0 8px 25px rgba(0,0,0,0.15); width: 250px;
+        body { margin: 0; padding: 0; font-family: sans-serif; }
+        #map { height: 100vh; width: 100%; z-index: 1; }
+        
+        /* Panel sterowania */
+        .controls { 
+            position: fixed; top: 10px; left: 10px; z-index: 1000; 
+            background: white; padding: 15px; border-radius: 8px; 
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2); max-width: 250px;
         }
-        .stats { display: flex; justify-content: space-between; margin-bottom: 15px; }
-        .stat-item { text-align: center; flex: 1; background: #f8f9fa; margin: 0 5px; padding: 8px; border-radius: 10px; }
-        .stat-item span { display: block; font-size: 20px; font-weight: bold; color: #3498db; }
-        select, input, button { width: 100%; margin-top: 10px; padding: 12px; border-radius: 8px; border: 1px solid #ddd; box-sizing: border-box; }
-        #locateBtn { background: #27ae60; color: white; border: none; font-weight: bold; cursor: pointer; }
-        #exportBtn { background: #34495e; color: white; border: none; font-weight: bold; cursor: pointer; }
-        #status { font-size: 12px; margin-top: 10px; text-align: center; color: #3498db; font-weight: bold; }
-        .leaflet-popup-content img { width: 100%; border-radius: 8px; margin-top: 10px; }
+
+        h1 { margin: 0 0 10px 0; font-size: 18px; cursor: pointer; color: #2c3e50; }
+        h1:hover { color: #3498db; } /* Sugestia, że można kliknąć */
+
+        .upload-box { display: none; margin-top: 10px; border-top: 1px solid #eee; pt: 10px; }
+        input, select, button { width: 100%; margin-bottom: 8px; padding: 8px; box-sizing: border-box; }
+        
+        button { background: #3498db; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
+        button:hover { background: #2980b9; }
+        button.logout { background: #e74c3c; margin-top: 10px; font-size: 10px; }
+
+        .loading-overlay {
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(255,255,255,0.8); z-index: 2000; justify-content: center; align-items: center;
+        }
     </style>
 </head>
 <body>
 
-<div id="panel">
-    <strong style="font-size: 22px;">Tabula</strong>
-    <p style="font-size: 12px; color: #7f8c8d; margin: 0 0 15px 0;">Monitoring ogłoszeń Kraków</p>
+<div class="loading-overlay" id="loader">Wysyłanie... proszę czekać.</div>
+
+<div class="controls">
+    <h1 onclick="checkLoginState()">Tabula 📍</h1>
+    <p style="font-size: 12px; color: #666; margin: 0;">Kliknij w logo, aby się zalogować.</p>
     
-    <div class="stats">
-        <div class="stat-item"><span id="totalCount">0</span><small>Suma</small></div>
-        <div class="stat-item"><span id="todayCount">0</span><small>Dzisiaj</small></div>
+    <div id="adminPanel" class="upload-box">
+        <input type="file" id="fileInput" accept="image/*" capture="camera">
+        <select id="categorySelect">
+            <option value="Billboard">Billboard</option>
+            <option value="Graffiti">Graffiti / Nielegalny plakat</option>
+            <option value="Słup/Latarnia">Reklama na słupie</option>
+            <option value="Inne">Inne</option>
+        </select>
+        <button onclick="uploadPhoto()">Dodaj zgłoszenie</button>
+        <button class="logout" onclick="logout()">Wyloguj</button>
     </div>
-
-    <label style="font-size: 11px; color: #7f8c8d;">Wybierz kategorię:</label>
-    <select id="categorySelect">
-        <option value="Słup/Latarnia">Słup lub latarnia</option>
-        <option value="Graffiti">Nielegalne Graffiti</option>	
-	    <option value="Billboard">Wielki format / Billboard</option>
-        <option value="Inne" selected>Inne / Ulotki</option>
-    </select>
-
-    <input type="file" id="fileInput" accept="image/*">
-    <button id="locateBtn"><i class="fa-solid fa-location-crosshairs"></i> CENTRUJ NA MNIE</button>
-    <button id="exportBtn"><i class="fa-solid fa-file-csv"></i> EKSPORTUJ RAPORT CSV</button>
-    <div id="status"></div>
 </div>
 
 <div id="map"></div>
 
-<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-<script src="https://unpkg.com/leaflet.markercluster/dist/leaflet.markercluster.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/exif-js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
-
 <script>
-    const SUPABASE_URL = "https://gvzkprcvxsfdbxekjsgo.supabase.co";
-    const SUPABASE_KEY = "sb_publishable_rVWiFQTjEAhmfm-SnQDMKw_QwspssLx"; 
-
+    // KONFIGURACJA SUPABASE - WPISZ SWOJE DANE
+    const SUPABASE_URL = 'https://hadriusgh.github.io/mapa/';
+    const SUPABASE_KEY = 'sb_publishable_rVWiFQTjEAhmfm-SnQDMKw_QwspssLx';
     const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-    // Startowa lokalizacja: Kraków
-    const map = L.map('map', { zoomControl: false }).setView([50.012, 20.019], 13);
-    L.control.zoom({ position: 'topleft' }).addTo(map);
-
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; OpenStreetMap'
-    }).addTo(map);
-
+    // INICJALIZACJA MAPY
+    const map = L.map('map').setView([50.012, 20.019], 13); // Kraków
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
     const markers = L.markerClusterGroup();
     map.addLayer(markers);
 
-    // Statystyki na żywo
-    async function updateDashboard() {
-        const { data } = await supabaseClient.from('photos').select('created_at');
-        if (!data) return;
-        document.getElementById('totalCount').innerText = data.length;
-        const today = new Date().toISOString().split('T')[0];
-        const todayItems = data.filter(item => item.created_at && item.created_at.startsWith(today));
-        document.getElementById('todayCount').innerText = todayItems.length;
-    }
-
-    // Dodawanie kolorowych markerów
-    function addMarkerToMap(lat, lng, path, dateStr, cat) {
-        const { data } = supabaseClient.storage.from('photos').getPublicUrl(path);
-        const url = data.publicUrl;
-        const dateFormatted = new Date(dateStr).toLocaleString('pl-PL');
+    // ŁADOWANIE PUNKTÓW Z BAZY
+    async function loadMarkers() {
+        const { data, error } = await supabaseClient.from('photos').select('*');
+        if (error) return console.error(error);
         
-        // Wybór koloru
-        let color = "#3498db"; 
-        if (cat === "Billboard") color = "#e74c3c";
-        if (cat === "Graffiti") color = "#2c3e50";
-        if (cat === "Słup/Latarnia") color = "#f1c40f";
-
-        const customIcon = L.divIcon({
-            className: 'custom-div-icon',
-            html: `<div style="background-color:${color}; width:16px; height:16px; border-radius:50%; border:3px solid white; box-shadow: 0 0 8px rgba(0,0,0,0.4);"></div>`,
-            iconSize: [16, 16], iconAnchor: [8, 8]
+        markers.clearLayers();
+        data.forEach(photo => {
+            const marker = L.marker([photo.lat, photo.lng]);
+            marker.bindPopup(`
+                <div style="width:200px">
+                    <img src="${photo.url}" style="width:100%; border-radius:5px">
+                    <p><b>Kategoria:</b> ${photo.category}</p>
+                    <p><small>Data: ${new Date(photo.created_at).toLocaleString()}</small></p>
+                </div>
+            `);
+            markers.addLayer(marker);
         });
-
-        const m = L.marker([lat, lng], { icon: customIcon }).bindPopup(`
-            <div style="min-width: 180px;">
-                <b style="color:${color}; font-size:14px;">${cat}</b><br>
-                <a href="${url}" target="_blank"><img src="${url}"></a>
-                <div style="font-size:10px; color:#95a5a6; margin-top:8px; text-align:right;">📅 ${dateFormatted}</div>
-            </div>
-        `);
-        markers.addLayer(m);
     }
 
-    // Obsługa lokalizacji
-    document.getElementById('locateBtn').onclick = () => {
-        map.locate({setView: true, maxZoom: 16});
-    };
-
-    // Eksport do CSV
-    document.getElementById('exportBtn').onclick = async () => {
-        const { data } = await supabaseClient.from('photos').select('*');
-        if (!data) return;
-        let csv = "Data,Kategoria,Lat,Lng,Link\n";
-        data.forEach(p => {
-            const url = supabaseClient.storage.from('photos').getPublicUrl(p.path).data.publicUrl;
-            csv += `${p.created_at},${p.category},${p.lat},${p.lng},${url}\n`;
-        });
-        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-        const link = document.createElement("a");
-        link.href = URL.createObjectURL(blob);
-        link.download = "raport_tabula.csv";
-        link.click();
-    };
-
-    // Przesyłanie zdjęcia
-    document.getElementById('fileInput').onchange = function(e) {
-        const file = e.target.files[0];
-        const category = document.getElementById('categorySelect').value;
-        const status = document.getElementById('status');
-        if (!file) return;
-
-        status.innerText = "Odczyt danych GPS...";
-
-        EXIF.getData(file, async function() {
-            const lat = EXIF.getTag(this, "GPSLatitude");
-            const lon = EXIF.getTag(this, "GPSLongitude");
-
-            if (!lat) {
-                alert("Zdjęcie nie ma danych lokalizacji!");
-                status.innerText = ""; return;
-            }
-
-            const convert = (dms, ref) => {
-                let dd = dms[0] + dms[1]/60 + dms[2]/3600;
-                return (ref === "S" || ref === "W") ? dd * -1 : dd;
-            };
-
-            const latitude = convert(lat, EXIF.getTag(this, "GPSLatitudeRef"));
-            const longitude = convert(lon, EXIF.getTag(this, "GPSLongitudeRef"));
-            const exifDateRaw = EXIF.getTag(this, "DateTimeOriginal");
-            const photoDate = exifDateRaw ? exifDateRaw.replace(/:/g, '-').replace(' ', 'T') : new Date().toISOString();
-            const fileName = Date.now() + "_" + file.name;
-
-            status.innerText = "Wysyłanie...";
-            await supabaseClient.storage.from('photos').upload(fileName, file);
+    // LOGOWANIE
+    async function checkLoginState() {
+        const { data: { session } } = await supabaseClient.auth.getSession();
+        if (session) {
+            document.getElementById('adminPanel').style.display = 'block';
+        } else {
+            const email = prompt("E-mail admina:");
+            if (!email) return;
+            const password = prompt("Hasło:");
             
-            const { data, error } = await supabaseClient.from('photos').insert([{
-                lat: latitude, lng: longitude, path: fileName, category: category, created_at: photoDate
-            }]).select();
-
-            if (!error) {
-                addMarkerToMap(latitude, longitude, fileName, data[0].created_at, category);
-                status.innerText = "Sukces!";
-                updateDashboard();
-                map.setView([latitude, longitude], 15);
+            const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+            if (error) alert("Błąd: " + error.message);
+            else {
+                alert("Zalogowano!");
+                document.getElementById('adminPanel').style.display = 'block';
             }
-        });
-    };
-
-    async function loadAll() {
-        const { data } = await supabaseClient.from('photos').select('*');
-        if (data) data.forEach(p => addMarkerToMap(p.lat, p.lng, p.path, p.created_at, p.category));
-        updateDashboard();
+        }
     }
-    loadAll();
+
+    async function logout() {
+        await supabaseClient.auth.signOut();
+        document.getElementById('adminPanel').style.display = 'none';
+        alert("Wylogowano.");
+    }
+
+    // WYSYŁANIE ZDJĘCIA
+    async function uploadPhoto() {
+        const fileInput = document.getElementById('fileInput');
+        const file = fileInput.files[0];
+        const category = document.getElementById('categorySelect').value;
+
+        if (!file) return alert("Wybierz lub zrób zdjęcie!");
+
+        document.getElementById('loader').style.display = 'flex';
+
+        // 1. Pobierz lokalizację
+        navigator.geolocation.getCurrentPosition(async (pos) => {
+            const lat = pos.coords.latitude;
+            const lng = pos.coords.longitude;
+
+            // 2. Wrzuć zdjęcie do Storage
+            const fileName = `${Date.now()}_${file.name}`;
+            const { data: uploadData, error: uploadError } = await supabaseClient.storage
+                .from('photos')
+                .upload(fileName, file);
+
+            if (uploadError) {
+                alert("Błąd uploadu: " + uploadError.message);
+                document.getElementById('loader').style.display = 'none';
+                return;
+            }
+
+            // 3. Pobierz publiczny URL zdjęcia
+            const { data: { publicUrl } } = supabaseClient.storage.from('photos').getPublicUrl(fileName);
+
+            // 4. Zapisz w bazie danych
+            const { error: dbError } = await supabaseClient.from('photos').insert([
+                { url: publicUrl, lat, lng, category }
+            ]);
+
+            document.getElementById('loader').style.display = 'none';
+
+            if (dbError) {
+                alert("Błąd bazy: " + dbError.message);
+            } else {
+                alert("Dodano pomyślnie!");
+                fileInput.value = '';
+                loadMarkers();
+            }
+        }, (err) => {
+            alert("Musisz włączyć GPS, aby dodać zdjęcie!");
+            document.getElementById('loader').style.display = 'none';
+        });
+    }
+
+    // Start aplikacji
+    loadMarkers();
+    
+    // Sprawdź czy użytkownik był już zalogowany przy starcie
+    supabaseClient.auth.getSession().then(({ data: { session } }) => {
+        if (session) document.getElementById('adminPanel').style.display = 'block';
+    });
 </script>
+
 </body>
 </html>
