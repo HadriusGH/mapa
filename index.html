@@ -2,8 +2,8 @@
 <html lang="pl">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Tabula - Mapa Reklam</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Tabula</title>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.css" />
@@ -15,74 +15,86 @@
     <script src="https://cdn.jsdelivr.net/npm/exif-js"></script>
 
     <style>
-        body { margin: 0; padding: 0; font-family: 'Segoe UI', sans-serif; background: #f4f7f6; }
+        body { margin: 0; padding: 0; font-family: sans-serif; }
         #map { height: 100vh; width: 100%; z-index: 1; }
         
+        /* Kompaktowy Panel Sterowania */
         .controls { 
-            position: fixed; top: 20px; left: 20px; z-index: 1000; 
-            background: white; padding: 15px; border-radius: 12px; 
-            box-shadow: 0 4px 20px rgba(0,0,0,0.2); width: 220px;
+            position: fixed; top: 10px; left: 10px; z-index: 1000; 
+            background: rgba(255,255,255,0.9); padding: 5px; border-radius: 8px; 
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2); display: flex; flex-direction: column; gap: 5px;
         }
 
-        .geo-main-btn {
-            background: #2ecc71; color: white; border: none; padding: 12px;
-            border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 15px;
-            width: 100%; display: flex; align-items: center; justify-content: center; gap: 10px;
-            margin-bottom: 10px;
+        .top-bar { display: flex; gap: 5px; align-items: center; }
+
+        /* Przycisk Lokalizacji */
+        .geo-btn {
+            background: #2ecc71; color: white; border: none; padding: 8px 12px;
+            border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 12px;
+            white-space: nowrap;
         }
 
-        .logo-btn {
-            font-size: 22px; font-weight: bold; cursor: pointer; color: #2c3e50;
-            text-align: center; padding: 10px 0; border-top: 1px solid #eee;
+        /* Przycisk Admina (Ikona głowy) */
+        .admin-trigger {
+            background: #34495e; color: white; border: none; width: 32px; height: 32px;
+            border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+            font-size: 18px;
         }
 
-        .admin-section { display: none; border-top: 2px solid #3498db; padding-top: 15px; margin-top: 5px; }
+        /* Sekcja Admina - wysuwana */
+        .admin-section { 
+            display: none; border-top: 1px solid #ddd; padding-top: 10px; 
+            width: 180px; flex-direction: column; 
+        }
         
         #fileInput { display: none; }
         .custom-file-upload {
-            display: block; background: #ecf0f1; color: #7f8c8d; padding: 12px;
-            text-align: center; border-radius: 6px; cursor: pointer; border: 2px dashed #bdc3c7;
-            margin-bottom: 10px; font-size: 13px; font-weight: bold;
+            display: block; background: #eee; padding: 8px; text-align: center;
+            border-radius: 4px; cursor: pointer; font-size: 11px; margin-bottom: 5px;
+            border: 1px dashed #999;
         }
-        .custom-file-upload.selected { background: #dff0d8; color: #3c763d; border-color: #d6e9c6; }
 
-        select, button.action-btn { width: 100%; margin-bottom: 10px; padding: 10px; border-radius: 6px; border: 1px solid #ddd; font-size: 14px; }
-        button.action-btn { background: #3498db; color: white; border: none; cursor: pointer; font-weight: bold; }
-        button.export-btn { background: #f39c12; color: white; border: none; font-weight: bold; margin-top: 5px; }
-        button.logout-btn { background: #e74c3c; color: white; border: none; font-size: 11px; padding: 8px; margin-top: 10px; cursor: pointer; border-radius: 4px; width: 100%; }
+        select, button.action-btn { width: 100%; margin-bottom: 5px; padding: 6px; border-radius: 4px; border: 1px solid #ccc; font-size: 11px; }
+        button.action-btn { background: #3498db; color: white; border: none; font-weight: bold; }
+        button.export-btn { background: #f39c12; }
+        button.logout-btn { background: #e74c3c; color: white; border: none; font-size: 9px; padding: 4px; margin-top: 5px; }
 
-        .leaflet-top.leaflet-left { margin-top: 240px !important; }
+        /* Popupy na mapie */
+        .popup-link img { width: 100%; border-radius: 4px; cursor: zoom-in; transition: 0.2s; }
+        .popup-link img:hover { opacity: 0.8; }
+
+        .leaflet-top.leaflet-left { margin-top: 100px !important; }
 
         .loading-overlay {
             display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(255,255,255,0.9); z-index: 2000; justify-content: center; align-items: center;
-            font-weight: bold; flex-direction: column; gap: 10px; text-align: center; padding: 20px;
+            background: rgba(255,255,255,0.8); z-index: 2000; justify-content: center; align-items: center;
+            font-size: 12px; font-weight: bold;
         }
     </style>
 </head>
 <body>
 
-<div class="loading-overlay" id="loader">
-    <div id="loaderStatus">Przetwarzanie danych... 🚀</div>
-</div>
+<div class="loading-overlay" id="loader">Przetwarzanie...</div>
 
 <div class="controls">
-    <button class="geo-main-btn" onclick="locateUser()">🎯 Moja lokalizacja</button>
-    <div class="logo-btn" onclick="checkLoginState()">Tabula 📍</div>
+    <div class="top-bar">
+        <button class="geo-btn" onclick="locateUser()">🎯 Moja lokalizacja</button>
+        <button class="admin-trigger" onclick="checkLoginState()">👤</button>
+    </div>
     
     <div id="adminPanel" class="admin-section">
-        <label for="fileInput" class="custom-file-upload" id="fileLabel">📷 Wybierz zdjęcia (wiele)</label>
+        <label for="fileInput" class="custom-file-upload" id="fileLabel">📷 Wybierz zdjęcia</label>
         <input type="file" id="fileInput" accept="image/*" multiple onchange="updateFileName(this)">
         
         <select id="categorySelect">
             <option value="Billboard">Billboard</option>
-            <option value="Graffiti">Graffiti / Plakat</option>
-            <option value="Słup/Latarnia">Reklama na słupie</option>
+            <option value="Graffiti">Graffiti</option>
+            <option value="Słup">Słup</option>
             <option value="Inne">Inne</option>
         </select>
         
-        <button class="action-btn" onclick="uploadPhoto()">Dodaj zgłoszenia</button>
-        <button class="export-btn action-btn" onclick="exportToCSV()">Eksportuj CSV</button>
+        <button class="action-btn" onclick="uploadPhoto()">Wyślij</button>
+        <button class="action-btn export-btn" onclick="exportToCSV()">CSV</button>
         <button class="logout-btn" onclick="logout()">Wyloguj</button>
     </div>
 </div>
@@ -101,17 +113,12 @@
 
     function updateFileName(input) {
         const label = document.getElementById('fileLabel');
-        if (input.files.length > 0) {
-            label.innerText = `✅ Wybrano: ${input.files.length} szt.`;
-            label.classList.add('selected');
-        }
+        label.innerText = input.files.length > 0 ? `✅ ${input.files.length} szt.` : "📷 Wybierz zdjęcia";
     }
 
-    // Pomocnicza funkcja do zamiany koordynatów EXIF na dziesiętne
-    function convertDMSToDD(degrees, minutes, seconds, direction) {
-        let dd = degrees + minutes / 60 + seconds / 3600;
-        if (direction === "S" || direction === "W") dd = dd * -1;
-        return dd;
+    function convertDMSToDD(deg, min, sec, dir) {
+        let dd = deg + min / 60 + sec / 3600;
+        return (dir === "S" || dir === "W") ? dd * -1 : dd;
     }
 
     async function loadMarkers() {
@@ -119,17 +126,34 @@
         if (error) return;
         markers.clearLayers();
         data.forEach(p => {
-            const d = p.created_at ? new Date(p.created_at).toLocaleString() : 'Brak daty';
-            L.marker([p.lat, p.lng]).bindPopup(`<div style="width:180px"><img src="${p.url}" style="width:100%; border-radius:8px"><p><b>${p.category}</b></p><small>${d}</small></div>`).addTo(markers);
+            const date = p.created_at ? new Date(p.created_at).toLocaleString() : 'Brak daty';
+            const marker = L.marker([p.lat, p.lng]);
+            // Dodano link otwierający zdjęcie w nowym oknie dla efektu powiększenia
+            marker.bindPopup(`
+                <div style="width:150px; font-size:11px;">
+                    <a href="${p.url}" target="_blank" class="popup-link">
+                        <img src="${p.url}" title="Kliknij, aby powiększyć">
+                    </a>
+                    <p style="margin:5px 0"><b>${p.category}</b></p>
+                    <small>${date}</small>
+                </div>
+            `);
+            markers.addLayer(marker);
         });
     }
 
     function locateUser() { map.locate({setView: true, maxZoom: 16}); }
+    map.on('locationfound', (e) => {
+        L.circle(e.latlng, e.accuracy).addTo(map);
+        L.marker(e.latlng).addTo(map).bindPopup("Tu jesteś").openPopup();
+    });
 
     async function checkLoginState() {
         const { data: { session } } = await supabaseClient.auth.getSession();
-        if (session) { document.getElementById('adminPanel').style.display = 'block'; }
-        else {
+        const panel = document.getElementById('adminPanel');
+        if (session) {
+            panel.style.display = (panel.style.display === 'flex') ? 'none' : 'flex';
+        } else {
             const email = prompt("E-mail:");
             const pass = prompt("Hasło:");
             if (email && pass) {
@@ -149,91 +173,57 @@
         const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
         const link = document.createElement("a");
         link.href = URL.createObjectURL(blob);
-        link.setAttribute("download", "mapa_tabula.csv");
+        link.setAttribute("download", "tabula.csv");
         link.click();
     }
 
     async function uploadPhoto() {
         const fileInput = document.getElementById('fileInput');
         const files = fileInput.files;
-        const category = document.getElementById('categorySelect').value;
-
-        if (files.length === 0) return alert("Wybierz zdjęcia!");
+        if (files.length === 0) return alert("Wybierz pliki!");
         
-        const loader = document.getElementById('loader');
-        const loaderStatus = document.getElementById('loaderStatus');
-        loader.style.display = 'flex';
-
-        // Funkcja pomocnicza do pobrania obecnego GPS (tylko jako fallback)
-        const getFallbackLocation = () => new Promise((resolve) => {
-            navigator.geolocation.getCurrentPosition(
-                (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-                () => resolve(null)
-            );
+        document.getElementById('loader').style.display = 'flex';
+        
+        const getFallback = () => new Promise(res => {
+            navigator.geolocation.getCurrentPosition(p => res({lat: p.coords.latitude, lng: p.coords.longitude}), () => res(null));
         });
-
-        const currentPos = await getFallbackLocation();
+        const currentPos = await getFallback();
 
         for (let i = 0; i < files.length; i++) {
             const file = files[i];
-            loaderStatus.innerText = `Przetwarzanie ${i + 1} z ${files.length}... ⏳`;
-
-            let photoData = await new Promise((res) => {
+            let exifData = await new Promise(res => {
                 EXIF.getData(file, function() {
-                    // 1. Data
                     const dt = EXIF.getTag(this, "DateTimeOriginal");
-                    let date = null;
-                    if (dt) {
-                        const p = dt.split(" ");
-                        date = p[0].replace(/:/g, "-") + "T" + p[1];
-                    }
-
-                    // 2. GPS ze zdjęcia
-                    const latArray = EXIF.getTag(this, "GPSLatitude");
-                    const latRef = EXIF.getTag(this, "GPSLatitudeRef");
-                    const lngArray = EXIF.getTag(this, "GPSLongitude");
-                    const lngRef = EXIF.getTag(this, "GPSLongitudeRef");
-
-                    let finalLat = null;
-                    let finalLng = null;
-
-                    if (latArray && latRef && lngArray && lngRef) {
-                        finalLat = convertDMSToDD(latArray[0], latArray[1], latArray[2], latRef);
-                        finalLng = convertDMSToDD(lngArray[0], lngArray[1], lngArray[2], lngRef);
-                    }
-
-                    res({ date, lat: finalLat, lng: finalLng });
+                    const lat = EXIF.getTag(this, "GPSLatitude");
+                    const latR = EXIF.getTag(this, "GPSLatitudeRef");
+                    const lng = EXIF.getTag(this, "GPSLongitude");
+                    const lngR = EXIF.getTag(this, "GPSLongitudeRef");
+                    res({
+                        d: dt ? dt.split(" ")[0].replace(/:/g, "-") + "T" + dt.split(" ")[1] : null,
+                        lat: lat ? convertDMSToDD(lat[0], lat[1], lat[2], latR) : null,
+                        lng: lng ? convertDMSToDD(lng[0], lng[1], lng[2], lngR) : null
+                    });
                 });
             });
 
-            // Użyj GPS ze zdjęcia, a jeśli go nie ma - użyj obecnej pozycji
-            const lat = photoData.lat || (currentPos ? currentPos.lat : null);
-            const lng = photoData.lng || (currentPos ? currentPos.lng : null);
+            const lat = exifData.lat || (currentPos ? currentPos.lat : null);
+            const lng = exifData.lng || (currentPos ? currentPos.lng : null);
 
-            if (!lat || !lng) {
-                console.warn(`Pominięto ${file.name} - brak lokalizacji.`);
-                continue;
-            }
-
-            const name = `${Date.now()}_${i}_${file.name}`;
-            const { error: upErr } = await supabaseClient.storage.from('photos').upload(name, file);
-            
-            if (!upErr) {
+            if (lat && lng) {
+                const name = `${Date.now()}_${file.name}`;
+                await supabaseClient.storage.from('photos').upload(name, file);
                 const { data: { publicUrl } } = supabaseClient.storage.from('photos').getPublicUrl(name);
                 await supabaseClient.from('photos').insert([{ 
-                    url: publicUrl, lat, lng, category, created_at: photoData.date 
+                    url: publicUrl, lat, lng, category: document.getElementById('categorySelect').value, created_at: exifData.d 
                 }]);
             }
         }
-
-        loader.style.display = 'none';
-        alert(`Zakończono! Sprawdź mapę.`);
         location.reload();
     }
 
     loadMarkers();
     supabaseClient.auth.getSession().then(({ data: { session } }) => {
-        if (session) document.getElementById('adminPanel').style.display = 'block';
+        if (session) document.getElementById('adminPanel').style.display = 'none';
     });
 </script>
 </body>
