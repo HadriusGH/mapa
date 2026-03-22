@@ -186,20 +186,6 @@
                 markers.addLayer(marker);
             }
         });
-
-        // Rysowanie linii trasy
-        if (latLngs.length > 1) {
-            routeLine = L.polyline(latLngs, {
-                color: '#3498db',
-                weight: 3,
-                opacity: 0.5,
-                dashArray: '8, 8',
-                lineJoin: 'round'
-            }).addTo(map);
-            
-            // Jeśli pokazujemy wszystko, dopasuj widok do trasy
-            if (categoryFilter === 'all') map.fitBounds(routeLine.getBounds(), {padding: [50, 50]});
-        }
     }
 
     function applyFilter() {
