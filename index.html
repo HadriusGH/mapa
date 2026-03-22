@@ -15,96 +15,120 @@
     <script src="https://cdn.jsdelivr.net/npm/exif-js"></script>
 
     <style>
-        body { margin: 0; padding: 0; font-family: sans-serif; }
+        body { margin: 0; padding: 0; font-family: sans-serif; background: #f4f7f6; }
         #map { height: 100vh; width: 100%; z-index: 1; }
+        
         .controls { 
-            position: fixed; top: 10px; left: 10px; z-index: 1000; 
-            background: white; padding: 15px; border-radius: 8px; 
-            box-shadow: 0 2px 10px rgba(0,0,0,0.2); max-width: 250px;
+            position: fixed; top: 15px; left: 15px; z-index: 1000; 
+            background: white; padding: 15px; border-radius: 12px; 
+            box-shadow: 0 4px 15px rgba(0,0,0,0.15); width: 220px;
         }
-        h1 { margin: 0 0 5px 0; font-size: 18px; cursor: pointer; color: #2c3e50; }
-        .upload-box { display: none; margin-top: 10px; border-top: 1px solid #eee; padding-top: 10px; }
-        input, select, button { width: 100%; margin-bottom: 8px; padding: 8px; box-sizing: border-box; }
-        button { background: #3498db; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
-        button.logout { background: #e74c3c; font-size: 10px; margin-top: 5px; }
+
+        h1 { margin: 0; font-size: 22px; cursor: pointer; color: #2c3e50; text-align: center; }
+
+        .admin-section { display: none; margin-top: 15px; border-top: 2px solid #eee; padding-top: 15px; }
+        
+        input, select, button { width: 100%; margin-bottom: 10px; padding: 10px; border-radius: 6px; border: 1px solid #ddd; box-sizing: border-box; font-size: 14px; }
+        
+        button { background: #3498db; color: white; border: none; cursor: pointer; font-weight: bold; transition: 0.3s; }
+        button:hover { background: #2980b9; }
+
+        button.export-btn { background: #27ae60; margin-top: 5px; }
+        button.export-btn:hover { background: #219150; }
+
+        button.logout-btn { background: #e74c3c; margin-top: 10px; font-size: 11px; padding: 5px; }
+        
         .loading-overlay {
             display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(255,255,255,0.8); z-index: 2000; justify-content: center; align-items: center;
+            background: rgba(255,255,255,0.85); z-index: 2000; justify-content: center; align-items: center;
+            font-weight: bold; color: #2c3e50;
+        }
+
+        /* Przycisk lokalizacji na mapie */
+        .geo-btn {
+            position: fixed; bottom: 20px; right: 20px; z-index: 1000;
+            background: white; width: 50px; height: 50px; border-radius: 50%;
+            display: flex; justify-content: center; align-items: center;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3); cursor: pointer; font-size: 24px;
         }
     </style>
 </head>
 <body>
 
-<div class="loading-overlay" id="loader">Przetwarzanie zdjęcia...</div>
+<div class="loading-overlay" id="loader">Przetwarzanie danych...</div>
 
 <div class="controls">
     <h1 onclick="checkLoginState()">Tabula 📍</h1>
-    <p id="loginHint" style="font-size: 11px; color: #666; margin: 0;">Kliknij w napis, by zarządzać.</p>
     
-    <div id="adminPanel" class="upload-box">
+    <div id="adminPanel" class="admin-section">
         <input type="file" id="fileInput" accept="image/*" capture="camera">
         <select id="categorySelect">
             <option value="Billboard">Billboard</option>
-            <option value="Graffiti">Graffiti / Nielegalny plakat</option>
+            <option value="Graffiti">Graffiti / Plakat</option>
             <option value="Słup/Latarnia">Reklama na słupie</option>
             <option value="Inne">Inne</option>
         </select>
-        <button onclick="uploadPhoto()">Dodaj do bazy</button>
-        <button class="logout" onclick="logout()">Wyloguj</button>
+        <button onclick="uploadPhoto()">Dodaj zgłoszenie</button>
+        <button class="export-btn" onclick="exportToCSV()">Eksportuj do CSV</button>
+        <button class="logout-btn" onclick="logout()">Wyloguj administratora</button>
     </div>
 </div>
+
+<div class="geo-btn" onclick="locateUser()">🎯</div>
 
 <div id="map"></div>
 
 <script>
-    // 1. KONFIGURACJA SUPABASE
+    // 1. KONFIGURACJA
     const SUPABASE_URL = 'https://gvzkprcvxsfdbxekjsgo.supabase.co';
     const SUPABASE_KEY = 'sb_publishable_rVWiFQTjEAhmfm-SnQDMKw_QwspssLx';
     const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-    // 2. INICJALIZACJA MAPY
+    // 2. MAPA
     const map = L.map('map').setView([50.012, 20.019], 13);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
     const markers = L.markerClusterGroup();
     map.addLayer(markers);
 
-    // Ładowanie punktów
     async function loadMarkers() {
         const { data, error } = await supabaseClient.from('photos').select('*');
-        if (error) return console.error(error);
-        
+        if (error) return;
         markers.clearLayers();
         data.forEach(photo => {
             const dateStr = photo.created_at ? new Date(photo.created_at).toLocaleString() : 'Brak daty';
             const marker = L.marker([photo.lat, photo.lng]);
             marker.bindPopup(`
                 <div style="width:200px">
-                    <img src="${photo.url}" style="width:100%; border-radius:5px">
-                    <p><b>Kategoria:</b> ${photo.category}</p>
-                    <p><small>Zrobiono: ${dateStr}</small></p>
+                    <img src="${photo.url}" style="width:100%; border-radius:8px">
+                    <p style="margin:8px 0"><b>${photo.category}</b></p>
+                    <p style="margin:0"><small>📅 ${dateStr}</small></p>
                 </div>
             `);
             markers.addLayer(marker);
         });
     }
 
-    // 3. OBSŁUGA LOGOWANIA
+    // 3. FUNKCJE LOKALIZACJI
+    function locateUser() {
+        map.locate({setView: true, maxZoom: 16});
+    }
+    map.on('locationfound', (e) => {
+        L.circle(e.latlng, e.accuracy).addTo(map);
+        L.marker(e.latlng).addTo(map).bindPopup("Jesteś tutaj").openPopup();
+    });
+
+    // 4. ADMIN & LOGOWANIE
     async function checkLoginState() {
         const { data: { session } } = await supabaseClient.auth.getSession();
         if (session) {
             document.getElementById('adminPanel').style.display = 'block';
         } else {
-            const email = prompt("E-mail admina:");
-            if (!email) return;
+            const email = prompt("E-mail:");
             const password = prompt("Hasło:");
-            if (!password) return;
-            
+            if (!email || !password) return;
             const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
-            if (error) alert("Błąd: " + error.message);
-            else {
-                alert("Zalogowano!");
-                location.reload();
-            }
+            if (error) alert("Błąd logowania");
+            else location.reload();
         }
     }
 
@@ -113,78 +137,64 @@
         location.reload();
     }
 
-    // 4. WYSYŁANIE ZDJĘCIA (EXIF + GPS + STORAGE + DB)
+    // 5. EKSPORT CSV
+    async function exportToCSV() {
+        const { data, error } = await supabaseClient.from('photos').select('*');
+        if (error) return alert("Błąd pobierania danych");
+
+        let csvContent = "data:text/csv;charset=utf-8,ID,Data,Kategoria,Lat,Lng,URL\n";
+        data.forEach(row => {
+            csvContent += `${row.id},${row.created_at},${row.category},${row.lat},${row.lng},${row.url}\n`;
+        });
+
+        const encodedUri = encodeURI(csvContent);
+        const link = document.createElement("a");
+        link.setAttribute("href", encodedUri);
+        link.setAttribute("download", "tabula_eksport.csv");
+        document.body.appendChild(link);
+        link.click();
+    }
+
+    // 6. UPLOAD
     async function uploadPhoto() {
         const fileInput = document.getElementById('fileInput');
         const file = fileInput.files[0];
-        const category = document.getElementById('categorySelect').value;
-
-        if (!file) return alert("Wybierz zdjęcie!");
+        if (!file) return alert("Wybierz plik!");
         document.getElementById('loader').style.display = 'flex';
 
-        // Odczyt daty ze zdjęcia (EXIF)
         let photoDate = null;
         try {
             photoDate = await new Promise((resolve) => {
                 EXIF.getData(file, function() {
-                    const dateTime = EXIF.getTag(this, "DateTimeOriginal");
-                    if (dateTime) {
-                        // Zmiana YYYY:MM:DD na YYYY-MM-DD
-                        const parts = dateTime.split(" ");
-                        const datePart = parts[0].replace(/:/g, "-");
-                        resolve(`${datePart}T${parts[1]}`);
-                    } else { resolve(null); }
+                    const dt = EXIF.getTag(this, "DateTimeOriginal");
+                    if (dt) {
+                        const p = dt.split(" ");
+                        resolve(p[0].replace(/:/g, "-") + "T" + p[1]);
+                    } else resolve(null);
                 });
             });
-        } catch (e) { console.log("Błąd EXIF:", e); }
+        } catch (e) {}
 
-        // Pobranie lokalizacji i wysyłka danych
         navigator.geolocation.getCurrentPosition(async (pos) => {
-            const lat = pos.coords.latitude;
-            const lng = pos.coords.longitude;
             const fileName = `${Date.now()}_${file.name}`;
-
-            // Wrzucenie pliku do Storage
-            const { error: upErr } = await supabaseClient.storage.from('photos').upload(fileName, file);
-            if (upErr) {
-                alert("Błąd pliku: " + upErr.message);
-                document.getElementById('loader').style.display = 'none';
-                return;
-            }
-
-            // Pobranie linku do zdjęcia
+            await supabaseClient.storage.from('photos').upload(fileName, file);
             const { data: { publicUrl } } = supabaseClient.storage.from('photos').getPublicUrl(fileName);
 
-            // Zapis w tabeli photos
-            const { error: dbErr } = await supabaseClient.from('photos').insert([
-                { 
-                    url: publicUrl, 
-                    lat: lat, 
-                    lng: lng, 
-                    category: category, 
-                    created_at: photoDate // Wysyłamy datę ze zdjęcia
-                }
-            ]);
+            await supabaseClient.from('photos').insert([{ 
+                url: publicUrl, lat: pos.coords.latitude, lng: pos.coords.longitude, 
+                category: document.getElementById('categorySelect').value, created_at: photoDate 
+            }]);
 
-            document.getElementById('loader').style.display = 'none';
-            if (dbErr) alert("Błąd bazy: " + dbErr.message);
-            else {
-                alert("Sukces! Zdjęcie dodane.");
-                location.reload();
-            }
-        }, (err) => {
-            alert("Błąd lokalizacji! Musisz włączyć GPS.");
+            location.reload();
+        }, () => {
+            alert("Błąd GPS");
             document.getElementById('loader').style.display = 'none';
         });
     }
 
-    // START APLIKACJI
     loadMarkers();
     supabaseClient.auth.getSession().then(({ data: { session } }) => {
-        if (session) {
-            document.getElementById('adminPanel').style.display = 'block';
-            document.getElementById('loginHint').innerText = "Panel administratora aktywny.";
-        }
+        if (session) document.getElementById('adminPanel').style.display = 'block';
     });
 </script>
 
