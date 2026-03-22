@@ -30,13 +30,11 @@
             width: 100%; display: flex; align-items: center; justify-content: center; gap: 10px;
             margin-bottom: 10px;
         }
-        .geo-main-btn:hover { background: #27ae60; }
 
         .logo-btn {
             font-size: 22px; font-weight: bold; cursor: pointer; color: #2c3e50;
             text-align: center; padding: 10px 0; border-top: 1px solid #eee;
         }
-        .logo-btn:hover { color: #3498db; }
 
         .admin-section { display: none; border-top: 2px solid #3498db; padding-top: 15px; margin-top: 5px; }
         
@@ -49,25 +47,23 @@
         .custom-file-upload.selected { background: #dff0d8; color: #3c763d; border-color: #d6e9c6; }
 
         select, button.action-btn { width: 100%; margin-bottom: 10px; padding: 10px; border-radius: 6px; border: 1px solid #ddd; font-size: 14px; }
-        
         button.action-btn { background: #3498db; color: white; border: none; cursor: pointer; font-weight: bold; }
         button.export-btn { background: #f39c12; color: white; border: none; font-weight: bold; margin-top: 5px; }
         button.logout-btn { background: #e74c3c; color: white; border: none; font-size: 11px; padding: 8px; margin-top: 10px; cursor: pointer; border-radius: 4px; width: 100%; }
 
-        /* Przesunięcie przycisków Zoom pod panel */
         .leaflet-top.leaflet-left { margin-top: 240px !important; }
 
         .loading-overlay {
             display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(255,255,255,0.9); z-index: 2000; justify-content: center; align-items: center;
-            font-weight: bold; flex-direction: column; gap: 10px;
+            font-weight: bold; flex-direction: column; gap: 10px; text-align: center; padding: 20px;
         }
     </style>
 </head>
 <body>
 
 <div class="loading-overlay" id="loader">
-    <div id="loaderStatus">Wysyłanie danych... 🚀</div>
+    <div id="loaderStatus">Przetwarzanie danych... 🚀</div>
 </div>
 
 <div class="controls">
@@ -111,6 +107,13 @@
         }
     }
 
+    // Pomocnicza funkcja do zamiany koordynatów EXIF na dziesiętne
+    function convertDMSToDD(degrees, minutes, seconds, direction) {
+        let dd = degrees + minutes / 60 + seconds / 3600;
+        if (direction === "S" || direction === "W") dd = dd * -1;
+        return dd;
+    }
+
     async function loadMarkers() {
         const { data, error } = await supabaseClient.from('photos').select('*');
         if (error) return;
@@ -122,16 +125,11 @@
     }
 
     function locateUser() { map.locate({setView: true, maxZoom: 16}); }
-    map.on('locationfound', (e) => {
-        L.circle(e.latlng, e.accuracy).addTo(map);
-        L.marker(e.latlng).addTo(map).bindPopup("Jesteś tutaj").openPopup();
-    });
 
     async function checkLoginState() {
         const { data: { session } } = await supabaseClient.auth.getSession();
-        if (session) {
-            document.getElementById('adminPanel').style.display = 'block';
-        } else {
+        if (session) { document.getElementById('adminPanel').style.display = 'block'; }
+        else {
             const email = prompt("E-mail:");
             const pass = prompt("Hasło:");
             if (email && pass) {
@@ -155,7 +153,6 @@
         link.click();
     }
 
-    // GŁÓWNA FUNKCJA MULTI-UPLOADU
     async function uploadPhoto() {
         const fileInput = document.getElementById('fileInput');
         const files = fileInput.files;
@@ -167,51 +164,71 @@
         const loaderStatus = document.getElementById('loaderStatus');
         loader.style.display = 'flex';
 
-        navigator.geolocation.getCurrentPosition(async (pos) => {
-            const lat = pos.coords.latitude;
-            const lng = pos.coords.longitude;
+        // Funkcja pomocnicza do pobrania obecnego GPS (tylko jako fallback)
+        const getFallbackLocation = () => new Promise((resolve) => {
+            navigator.geolocation.getCurrentPosition(
+                (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+                () => resolve(null)
+            );
+        });
 
-            for (let i = 0; i < files.length; i++) {
-                const file = files[i];
-                loaderStatus.innerText = `Przetwarzanie ${i + 1} z ${files.length}... ⏳`;
+        const currentPos = await getFallbackLocation();
 
-                // 1. Wyciąganie daty EXIF dla każdego pliku
-                let photoDate = null;
-                try {
-                    photoDate = await new Promise((res) => {
-                        EXIF.getData(file, function() {
-                            const dt = EXIF.getTag(this, "DateTimeOriginal");
-                            if (dt) { 
-                                const p = dt.split(" "); 
-                                res(p[0].replace(/:/g, "-") + "T" + p[1]); 
-                            } else res(null);
-                        });
-                    });
-                } catch (e) { console.error("Błąd EXIF", e); }
+        for (let i = 0; i < files.length; i++) {
+            const file = files[i];
+            loaderStatus.innerText = `Przetwarzanie ${i + 1} z ${files.length}... ⏳`;
 
-                // 2. Upload do Storage
-                const name = `${Date.now()}_${i}_${file.name}`;
-                const { error: upErr } = await supabaseClient.storage.from('photos').upload(name, file);
-                
-                if (!upErr) {
-                    const { data: { publicUrl } } = supabaseClient.storage.from('photos').getPublicUrl(name);
+            let photoData = await new Promise((res) => {
+                EXIF.getData(file, function() {
+                    // 1. Data
+                    const dt = EXIF.getTag(this, "DateTimeOriginal");
+                    let date = null;
+                    if (dt) {
+                        const p = dt.split(" ");
+                        date = p[0].replace(/:/g, "-") + "T" + p[1];
+                    }
 
-                    // 3. Zapis do Bazy
-                    await supabaseClient.from('photos').insert([{ 
-                        url: publicUrl, lat, lng, category, created_at: photoDate 
-                    }]);
-                } else {
-                    console.error("Błąd pliku:", upErr.message);
-                }
+                    // 2. GPS ze zdjęcia
+                    const latArray = EXIF.getTag(this, "GPSLatitude");
+                    const latRef = EXIF.getTag(this, "GPSLatitudeRef");
+                    const lngArray = EXIF.getTag(this, "GPSLongitude");
+                    const lngRef = EXIF.getTag(this, "GPSLongitudeRef");
+
+                    let finalLat = null;
+                    let finalLng = null;
+
+                    if (latArray && latRef && lngArray && lngRef) {
+                        finalLat = convertDMSToDD(latArray[0], latArray[1], latArray[2], latRef);
+                        finalLng = convertDMSToDD(lngArray[0], lngArray[1], lngArray[2], lngRef);
+                    }
+
+                    res({ date, lat: finalLat, lng: finalLng });
+                });
+            });
+
+            // Użyj GPS ze zdjęcia, a jeśli go nie ma - użyj obecnej pozycji
+            const lat = photoData.lat || (currentPos ? currentPos.lat : null);
+            const lng = photoData.lng || (currentPos ? currentPos.lng : null);
+
+            if (!lat || !lng) {
+                console.warn(`Pominięto ${file.name} - brak lokalizacji.`);
+                continue;
             }
 
-            loader.style.display = 'none';
-            alert(`Dodano pomyślnie ${files.length} zdjęć!`);
-            location.reload();
-        }, () => { 
-            alert("Błąd GPS!"); 
-            loader.style.display = 'none'; 
-        }, { enableHighAccuracy: true });
+            const name = `${Date.now()}_${i}_${file.name}`;
+            const { error: upErr } = await supabaseClient.storage.from('photos').upload(name, file);
+            
+            if (!upErr) {
+                const { data: { publicUrl } } = supabaseClient.storage.from('photos').getPublicUrl(name);
+                await supabaseClient.from('photos').insert([{ 
+                    url: publicUrl, lat, lng, category, created_at: photoData.date 
+                }]);
+            }
+        }
+
+        loader.style.display = 'none';
+        alert(`Zakończono! Sprawdź mapę.`);
+        location.reload();
     }
 
     loadMarkers();
